@@ -1,54 +1,88 @@
-# Magic Trackpad 2 Precision Touchpad driver for Windows 11, signed by Microsoft, no more hacks required 🎉
+# TouchpadCanvas
 
-This is a fork of the excellent [imbushuo](https://github.com/imbushuo/mac-precision-touchpad) driver for the Magic Trackpad 2. **It supports Bluetooth**. Compared to imbushuo or to the official 2021 Apple driver, this project adds:
+**Use an Apple Magic Trackpad like a touchscreen in Clip Studio Paint and Photoshop on Windows.** Pan, pinch-zoom
+and rotate the canvas with two fingers, the way you would on an iPad, while the trackpad keeps working as a
+normal touchpad everywhere else.
 
-- support for USB-C Magic Trackpad 2
-- battery level reading
-- haptic feedback control
-- various options for controlling pointer precision
-- **Trackpad Canvas** (this fork): one tray app for the driver settings plus touchscreen-style pan, zoom and
-  rotate in art programs. It replaces the upstream control panel; see below.
+I wanted my Magic Trackpad to move the canvas in art programs the way it does on a Mac. On Windows, art programs
+only get scroll-wheel emulation from a touchpad: no rotation, a jumpy zoom, and panning that fights the tools.
+So I wrote **Trackpad Canvas**, a small tray app that turns two-finger trackpad gestures into real touchscreen
+input for the apps you choose.
 
-The previous version of this project used a hack to install itself in the DriverStore and couldn't support Bluetooth. At the beginning of this year, I decided to purchase an EV certificate to properly sign the driver: I paid 485 euros for it, including taxes that I have no way of recovering as an individual (btw, only organizations can request an EV certificate). I was tired of seeing people resorting to the wildest hacks to get the MT2 to work via Bluetooth 😀 (you can get a glimpse of this in the issues of this repo). **Windows drivers signing requirements and costs are unfair to open-source developers**.
+This repository is a fork of Vito Plantamura's excellent
+[MagicTrackpad2ForWindows](https://github.com/vitoplantamura/MagicTrackpad2ForWindows) driver (see
+[Credits](#credits)). Trackpad Canvas replaces that project's control panel, so one app now handles both the
+gestures and the driver settings.
 
-## Installation on Windows 11
+## What Trackpad Canvas does
 
-0) Uninstall any previous versions of this driver, imbushuo or `official 2021 Apple driver`. Personally I use [DriverStore Explorer](https://github.com/lostindark/DriverStoreExplorer) for that, alternatively you can use Windows Device Manager. Also, **it's especially important to uninstall `Magic Utilities` and `Trackpad++`** before continuing with the installation!
+**Gestures tab**
+- In allowed apps (Clip Studio Paint and Photoshop by default), it creates two virtual touchscreen fingers under
+  your cursor that follow your real fingers. Pan, zoom and rotate track your fingers exactly.
+- In every other app, two-finger scrolling and pinch-zoom work like a normal touchpad.
+- A two-finger tap still right-clicks.
+- It shows the trackpad's battery level and warns you when it's low.
+- These features work with any Windows Precision Touchpad, not only the Magic Trackpad.
 
-1) Download the zip file of this project from the [Releases](https://github.com/vitoplantamura/MagicTrackpad2ForWindows/releases) of this repo and unzip it.
+**Trackpad driver tab**
+- All the options of the upstream driver: haptic click strength, silent clicking, disabling or maxing out the
+  haptics, freezing the pointer when you lift a finger, palm and near-finger rejection, upside-down use, and
+  non-admin access.
+- The app runs as a normal user. Clicking *Apply* asks for administrator permission once, only to save these
+  settings.
 
-2) Select your architecture: AMD64 or ARM64. Right-click on the INF file and click "Install".
+Full setup, options and limitations: [`TrackpadCanvas/README.md`](TrackpadCanvas/README.md).
 
-### Note about Windows 10
+## Installation
 
-Windows 10 AMD64 is supported through a self-signed driver package.
+1. **Install the driver** (Magic Trackpad users). Use the **Microsoft-signed** package from the
+   [upstream Releases](https://github.com/vitoplantamura/MagicTrackpad2ForWindows/releases). Driver builds from
+   this fork aren't signed, and the driver code here is unchanged from upstream.
+   - First uninstall any older version of this driver, the imbushuo driver or the official 2021 Apple driver
+     (for example with [DriverStore Explorer](https://github.com/lostindark/DriverStoreExplorer) or Device
+     Manager). **Also uninstall *Magic Utilities* and *Trackpad++*.**
+   - Unzip the package, open the folder for your architecture (AMD64 or ARM64), right-click the INF file and
+     choose *Install*. On Windows 10, only AMD64 is supported, through upstream's self-signed package.
+2. **Get Trackpad Canvas.** Build it with
+   `powershell -ExecutionPolicy Bypass -File TrackpadCanvas\build.ps1`. No SDK is needed; it uses the .NET
+   Framework compiler that ships with Windows. Or download `TrackpadCanvas-amd64.exe` from this repo's Actions
+   build.
+3. **Set up Windows and your art program.** Turn off Windows' own two-finger scroll and pinch-zoom, and turn on
+   touch gestures in Clip Studio Paint or Photoshop. The steps are in the
+   [Trackpad Canvas README](TrackpadCanvas/README.md#setup).
 
-Windows 10 ARM64 is not supported.
+## Repository layout
 
-## Trackpad Canvas (settings and art program gestures)
-
-In this fork, [`TrackpadCanvas/`](TrackpadCanvas/README.md) is the single companion app for the driver. It
-replaces the upstream WinForms and WinUI 3 control panels. It runs in the system tray as a normal user and has
-two tabs:
-
-- **Gestures**: when an art program such as Clip Studio Paint or Photoshop has focus, two-finger gestures
-  become real touchscreen pan, pinch-zoom and rotate. Everywhere else it scrolls and zooms like a normal
-  touchpad. This works with any Precision Touchpad driver.
-- **Trackpad driver**: the former control panel's options (click feedback and strength, silent clicking,
-  pointer stop on lift, palm rejection, near-finger rejection, invert movement, non-admin access). *Apply*
-  shows one UAC prompt and writes the settings through an elevated copy of the app. The tray app itself
-  never runs as admin.
-
-The battery level is shown on the Gestures tab. It is read from the trackpad's HID battery report, or through
-this driver when that report isn't available. Over USB, that needs *Let non-admin apps talk to the driver*
-to be on. The driver itself is unchanged, so the Microsoft-signed driver package keeps working as-is.
-
-Build: `powershell -ExecutionPolicy Bypass -File TrackpadCanvas\build.ps1` (no SDK needed; uses the .NET
-Framework compiler that ships with Windows). The CI workflow also publishes `TrackpadCanvas-amd64.exe`.
+| Folder | What it is | Origin |
+|---|---|---|
+| `TrackpadCanvas/` | The tray app: gestures and driver settings | This fork |
+| `AmtPtpDeviceUsbUm/` | USB user-mode driver (UMDF) | Upstream, unchanged |
+| `AmtPtpHidFilter/` | Bluetooth HID filter driver (KMDF) | Upstream, unchanged |
+| `build/`, `tools/` | Packaging scripts and test tools | Upstream; scripts updated to ship Trackpad Canvas |
 
 ## Credits
 
-- [This excellent PR](https://github.com/imbushuo/mac-precision-touchpad/pull/533) of [1Revenger1](https://github.com/1Revenger1) to the imbushuo repo, which fixes the "near field fingers" problem, cleans up the code, and removes the QueryPerformanceCounter call in the interrupt function.
-- The haptic feedback control messages sent by the driver to the MT2 in this project are based on the excellent reverse engineering work of [dos1](https://github.com/dos1) ([here](https://github.com/mwyborski/Linux-Magic-Trackpad-2-Driver/issues/28#issuecomment-451625504)).
-- My long-time friends at [Landlogic IT](https://landlogic.it/), who took care of the grueling process of gaining access to Microsoft's Hardware Dashboard and who take care of signing the driver packages for me.
-- @ordens, Taylor Sharp, @Wikiwix, @nagromc, @danspel, 乔​泽昱, Purasu Oy, Patrick Adler, @macleodal for their contribution to the purchase of the EV certificate ([more info here](https://github.com/vitoplantamura/MagicTrackpad2ForWindows/issues/31)).
+The driver, which makes the Magic Trackpad 2 a Windows Precision Touchpad over USB and Bluetooth, is entirely the
+work of **[Vito Plantamura](https://github.com/vitoplantamura)** and the people he credits. It builds on the
+[imbushuo mac-precision-touchpad](https://github.com/imbushuo/mac-precision-touchpad) driver and adds USB-C
+support, battery reading, haptic feedback control and pointer-precision options. Vito personally paid for an EV
+certificate so the driver could be properly signed by Microsoft. If it works for you, consider supporting the
+[upstream project](https://github.com/vitoplantamura/MagicTrackpad2ForWindows).
+
+Credits from the upstream project:
+
+- [This excellent PR](https://github.com/imbushuo/mac-precision-touchpad/pull/533) by
+  [1Revenger1](https://github.com/1Revenger1) to the imbushuo repo. It fixes the "near field fingers" problem,
+  cleans up the code and removes the QueryPerformanceCounter call from the interrupt function.
+- The haptic feedback control messages are based on the reverse engineering work of
+  [dos1](https://github.com/dos1)
+  ([here](https://github.com/mwyborski/Linux-Magic-Trackpad-2-Driver/issues/28#issuecomment-451625504)).
+- [Landlogic IT](https://landlogic.it/), who handle access to Microsoft's Hardware Dashboard and the signing of
+  the upstream driver packages.
+- @ordens, Taylor Sharp, @Wikiwix, @nagromc, @danspel, 乔​泽昱, Purasu Oy, Patrick Adler and @macleodal, who
+  helped pay for the upstream EV certificate
+  ([more info](https://github.com/vitoplantamura/MagicTrackpad2ForWindows/issues/31)).
+
+## License
+
+GPLv2, the same as the upstream project. See [LICENSE](LICENSE).
