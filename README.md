@@ -26,6 +26,17 @@ Windows 10 AMD64 is supported through a self-signed driver package.
 
 Windows 10 ARM64 is not supported.
 
+## Trackpad Canvas (art program gestures)
+
+[`TrackpadCanvas/`](TrackpadCanvas/README.md) is an optional tray app. When an art program such as Clip
+Studio Paint or Photoshop has focus, it turns two-finger gestures into real touchscreen pan, pinch-zoom and
+rotate. Everywhere else it scrolls and zooms like a normal touchpad. It runs entirely in user mode on top of
+this driver, which it does not modify, so the Microsoft-signed driver package keeps working as-is. It also
+reads the battery level through this driver, which works even when the trackpad is connected over USB.
+
+Build: `powershell -ExecutionPolicy Bypass -File TrackpadCanvas\build.ps1` (no SDK needed; uses the .NET
+Framework compiler that ships with Windows). The CI workflow also publishes `TrackpadCanvas-amd64.exe`.
+
 ## Credits
 
 - [This excellent PR](https://github.com/imbushuo/mac-precision-touchpad/pull/533) of [1Revenger1](https://github.com/1Revenger1) to the imbushuo repo, which fixes the "near field fingers" problem, cleans up the code, and removes the QueryPerformanceCounter call in the interrupt function.
