@@ -4,12 +4,7 @@
 and rotate the canvas with two fingers, the way you would on an iPad, while the trackpad keeps working as a
 normal touchpad everywhere else.
 
-I wanted my Magic Trackpad to move the canvas in art programs the way it does on a Mac. On Windows, art programs
-only get scroll-wheel emulation from a touchpad: no rotation, a jumpy zoom, and panning that fights the tools.
-So I wrote **Trackpad Canvas**, a small tray app that turns two-finger trackpad gestures into real touchscreen
-input for the apps you choose.
-
-This repository is a fork of Vito Plantamura's excellent
+This repository is a fork of Vito Plantamura's
 [MagicTrackpad2ForWindows](https://github.com/vitoplantamura/MagicTrackpad2ForWindows) driver (see
 [Credits](#credits)). Trackpad Canvas replaces that project's control panel, so one app now handles both the
 gestures and the driver settings.
