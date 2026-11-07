@@ -6,9 +6,8 @@ This is a fork of the excellent [imbushuo](https://github.com/imbushuo/mac-preci
 - battery level reading
 - haptic feedback control
 - various options for controlling pointer precision
-- a control panel:
-
-![Control Panel](https://raw.githubusercontent.com/vitoplantamura/MagicTrackpad2ForWindows/master/assets/ControlPanel.png)
+- **Trackpad Canvas** (this fork): one tray app for the driver settings plus touchscreen-style pan, zoom and
+  rotate in art programs. It replaces the upstream control panel; see below.
 
 The previous version of this project used a hack to install itself in the DriverStore and couldn't support Bluetooth. At the beginning of this year, I decided to purchase an EV certificate to properly sign the driver: I paid 485 euros for it, including taxes that I have no way of recovering as an individual (btw, only organizations can request an EV certificate). I was tired of seeing people resorting to the wildest hacks to get the MT2 to work via Bluetooth 😀 (you can get a glimpse of this in the issues of this repo). **Windows drivers signing requirements and costs are unfair to open-source developers**.
 
@@ -26,13 +25,23 @@ Windows 10 AMD64 is supported through a self-signed driver package.
 
 Windows 10 ARM64 is not supported.
 
-## Trackpad Canvas (art program gestures)
+## Trackpad Canvas (settings and art program gestures)
 
-[`TrackpadCanvas/`](TrackpadCanvas/README.md) is an optional tray app. When an art program such as Clip
-Studio Paint or Photoshop has focus, it turns two-finger gestures into real touchscreen pan, pinch-zoom and
-rotate. Everywhere else it scrolls and zooms like a normal touchpad. It runs entirely in user mode on top of
-this driver, which it does not modify, so the Microsoft-signed driver package keeps working as-is. It also
-reads the battery level through this driver, which works even when the trackpad is connected over USB.
+In this fork, [`TrackpadCanvas/`](TrackpadCanvas/README.md) is the single companion app for the driver. It
+replaces the upstream WinForms and WinUI 3 control panels. It runs in the system tray as a normal user and has
+two tabs:
+
+- **Gestures**: when an art program such as Clip Studio Paint or Photoshop has focus, two-finger gestures
+  become real touchscreen pan, pinch-zoom and rotate. Everywhere else it scrolls and zooms like a normal
+  touchpad. This works with any Precision Touchpad driver.
+- **Trackpad driver**: the former control panel's options (click feedback and strength, silent clicking,
+  pointer stop on lift, palm rejection, near-finger rejection, invert movement, non-admin access). *Apply*
+  shows one UAC prompt and writes the settings through an elevated copy of the app. The tray app itself
+  never runs as admin.
+
+The battery level is shown on the Gestures tab. It is read from the trackpad's HID battery report, or through
+this driver when that report isn't available. Over USB, that needs *Let non-admin apps talk to the driver*
+to be on. The driver itself is unchanged, so the Microsoft-signed driver package keeps working as-is.
 
 Build: `powershell -ExecutionPolicy Bypass -File TrackpadCanvas\build.ps1` (no SDK needed; uses the .NET
 Framework compiler that ships with Windows). The CI workflow also publishes `TrackpadCanvas-amd64.exe`.

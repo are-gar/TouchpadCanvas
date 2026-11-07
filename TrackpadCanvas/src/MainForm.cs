@@ -54,7 +54,7 @@ namespace TrackpadCanvas
         {
             this.settings = settings;
             this.startHidden = startHidden;
-            try { logFile = new StreamWriter(logPath, true) { AutoFlush = true }; } catch (IOException) { }
+            try { logFile = Program.OpenLog(logPath); logFile.AutoFlush = true; } catch (IOException) { }
 
             engine = new GestureEngine(injector, wheel);
             engine.ChooseMode = ChooseGestureMode;
@@ -85,8 +85,8 @@ namespace TrackpadCanvas
             Icon = AppIcon.Load();
             Font = SystemFonts.MessageBoxFont;
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(600, 540);
-            MinimumSize = new Size(460, 440);
+            ClientSize = Program.Sz(640, 600);
+            MinimumSize = Program.Sz(500, 480);
 
             var table = new TableLayoutPanel
             {
@@ -115,7 +115,7 @@ namespace TrackpadCanvas
             numScale = new NumericUpDown
             {
                 Minimum = 1, Maximum = 40, DecimalPlaces = 1, Increment = 0.5m,
-                Value = (decimal)Math.Max(1, Math.Min(40, settings.PxPerMm)), Width = 80,
+                Value = (decimal)Math.Max(1, Math.Min(40, settings.PxPerMm)), Width = Program.Px(80),
             };
             numScale.ValueChanged += (s, e) => { settings.PxPerMm = (double)numScale.Value; SettingsChanged(); };
             table.Controls.Add(numScale, 1, 2);
@@ -139,7 +139,7 @@ namespace TrackpadCanvas
             numScroll = new NumericUpDown
             {
                 Minimum = 2, Maximum = 100, DecimalPlaces = 0, Increment = 2,
-                Value = (decimal)Math.Max(2, Math.Min(100, settings.ScrollSpeed)), Width = 80,
+                Value = (decimal)Math.Max(2, Math.Min(100, settings.ScrollSpeed)), Width = Program.Px(80),
             };
             numScroll.ValueChanged += (s, e) => { settings.ScrollSpeed = (double)numScroll.Value; SettingsChanged(); };
             table.Controls.Add(numScroll, 1, 5);
@@ -149,7 +149,7 @@ namespace TrackpadCanvas
             table.Controls.Add(chkReverseScroll, 0, 6);
             table.SetColumnSpan(chkReverseScroll, 2);
 
-            lblDevice = new Label { Text = "Trackpad: waiting for input...", AutoSize = true, MaximumSize = new Size(560, 0), Margin = new Padding(3, 12, 3, 3) };
+            lblDevice = new Label { Text = "Trackpad: waiting for input...", AutoSize = true, MaximumSize = Program.Sz(560, 0), Margin = new Padding(3, 12, 3, 3) };
             table.Controls.Add(lblDevice, 0, 7);
             table.SetColumnSpan(lblDevice, 2);
 
@@ -170,7 +170,16 @@ namespace TrackpadCanvas
             table.SetColumnSpan(txtLog, 2);
             for (int i = 0; i < 10; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Controls.Add(table);
+            var tabs = new TabControl { Dock = DockStyle.Fill };
+            var gestureTab = new TabPage("Gestures") { UseVisualStyleBackColor = true };
+            gestureTab.Controls.Add(table);
+            var driverTab = new TabPage("Trackpad driver") { UseVisualStyleBackColor = true };
+            var driver = new DriverPanel { Dock = DockStyle.Fill };
+            driver.Log += Log;
+            driverTab.Controls.Add(driver);
+            tabs.TabPages.Add(gestureTab);
+            tabs.TabPages.Add(driverTab);
+            Controls.Add(tabs);
             UpdateControlStates();
 
             var menu = new ContextMenuStrip();
@@ -215,9 +224,9 @@ namespace TrackpadCanvas
                 bool fromDriver = false;
                 if (status == null)
                 {
-                    // Fall back to the MagicTrackpad2ForWindows driver, which can also report the level over USB.
+                    // Fall back to the Magic Trackpad 2 driver, which can also report the level over USB.
                     string source;
-                    int p = DriverBattery.TryRead(out source);
+                    int p = DriverControl.TryReadBattery(out source);
                     if (p > 0)
                     {
                         status = new BatteryStatus { Percent = p, Flags = source };

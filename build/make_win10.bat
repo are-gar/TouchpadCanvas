@@ -13,7 +13,7 @@ mkdir result\AMD64
 
 copy .\MT2FW10-amd64-20260318-SelfSigned\AMD64\AmtPtpDevice.inf result\AMD64 & REM old inf; change only DriverVer
 if %errorlevel% neq 0 exit /b %errorlevel%
-copy .\MT2FW11-20260930-MSSigned\AmtPtpControlPanel.exe result
+copy ..\TrackpadCanvas\bin\TrackpadCanvas.exe result
 if %errorlevel% neq 0 exit /b %errorlevel%
 copy .\MT2FW10-amd64-20260318-SelfSigned\MagicTrackpad2ForWindows.cer result
 if %errorlevel% neq 0 exit /b %errorlevel%

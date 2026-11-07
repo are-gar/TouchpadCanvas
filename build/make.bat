@@ -7,7 +7,7 @@ echo   https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-w
 echo IMPORTANT: SDK and WDK are downloaded automatically with NuGet. However the "Windows Driver Kit"
 echo individual component is still required. To restore NuGet packages, please run this command:
 echo   NuGet.exe restore ..\AmtPtpHidFilter\packages.config -PackagesDirectory ..\packages\
-echo Also please make sure that the ".NET desktop development" workload is selected during install.
+echo Trackpad Canvas is built with the .NET Framework compiler that ships with Windows (no SDK needed).
 echo Then start this bat file from "x64 Native Tools Command Prompt for VS 2022".
 echo ------------------------------------------------------------------------------------------------
 
@@ -15,7 +15,7 @@ set /p "inf2catPath=Please enter the full path to the inf2cat.exe file (defaults
 if "%inf2catPath%"=="" set "inf2catPath=C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\inf2cat.exe"
 if not exist "%inf2catPath%" exit /b 1
 
-set /p "sha1TpCp=Please enter the SHA1 Thumbprint for signing the Control Panel exe: "
+set /p "sha1TpCp=Please enter the SHA1 Thumbprint for signing TrackpadCanvas.exe: "
 set /p "sha1TpDr=Please enter the SHA1 Thumbprint for signing the drivers: "
 
 msbuild ..\AmtPtpDeviceUsbUm\MagicTrackpad2PtpDevice.vcxproj /p:Configuration=Release /p:Platform=ARM64
@@ -30,7 +30,7 @@ if %errorlevel% neq 0 exit /b %errorlevel%
 msbuild ..\AmtPtpHidFilter\AmtPtpHidFilter.vcxproj /p:Configuration=Release /p:Platform=x64
 if %errorlevel% neq 0 exit /b %errorlevel%
 
-msbuild ..\AmtPtpControlPanel\AmtPtpControlPanel.csproj /p:Configuration=Release /p:Platform=AnyCPU
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\TrackpadCanvas\build.ps1
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 rmdir result /S /Q
@@ -39,7 +39,7 @@ mkdir result\AMD64
 mkdir result\ARM64
 copy AmtPtpDevice_AMD64.inf result\AMD64\AmtPtpDevice.inf
 copy AmtPtpDevice_ARM64.inf result\ARM64\AmtPtpDevice.inf
-copy ..\AmtPtpControlPanel\bin\Release\AmtPtpControlPanel.exe result
+copy ..\TrackpadCanvas\bin\TrackpadCanvas.exe result
 copy ..\AmtPtpDeviceUsbUm\build\AmtPtpDeviceUsbUm\x64\Release\AmtPtpDeviceUsbUm.dll result\AMD64
 copy ..\AmtPtpDeviceUsbUm\build\AmtPtpDeviceUsbUm\ARM64\Release\AmtPtpDeviceUsbUm.dll result\ARM64
 copy ..\AmtPtpHidFilter\build\AmtPtpHidFilter\x64\Release\AmtPtpHidFilter.sys result\AMD64
@@ -51,7 +51,7 @@ copy ..\AmtPtpDeviceUsbUm\build\AmtPtpDeviceUsbUm\ARM64\Release\AmtPtpDeviceUsbU
 copy ..\AmtPtpHidFilter\build\AmtPtpHidFilter\x64\Release\AmtPtpHidFilter.pdb result\pdb\AMD64
 copy ..\AmtPtpHidFilter\build\AmtPtpHidFilter\ARM64\Release\AmtPtpHidFilter.pdb result\pdb\ARM64
 
-signtool sign /v /fd sha256 /sha1 "%sha1TpCp%" /t http://timestamp.digicert.com result\AmtPtpControlPanel.exe
+signtool sign /v /fd sha256 /sha1 "%sha1TpCp%" /t http://timestamp.digicert.com result\TrackpadCanvas.exe
 if %errorlevel% neq 0 exit /b %errorlevel%
 
 signtool sign /v /fd sha256 /sha1 "%sha1TpDr%" /t http://timestamp.digicert.com result\AMD64\AmtPtpDeviceUsbUm.dll

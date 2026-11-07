@@ -34,7 +34,7 @@ namespace TrackpadCanvas
             // --probe: list precision touchpads to the log and exit (no UI, no injection).
             if (Array.Exists(args, a => a == "--probe"))
             {
-                using (var w = new StreamWriter(logPath, true))
+                using (var w = Program.OpenLog(logPath))
                 {
                     w.WriteLine("---- probe " + DateTime.Now + " ----");
                     var found = EnumerateTouchpads(w.WriteLine);
@@ -51,12 +51,19 @@ namespace TrackpadCanvas
                             : string.Format("Battery {0}% charging={1} full={2} flags=[{3}]", s.Percent, s.Charging, s.FullyCharged, s.Flags));
                     }
                     string dsrc;
-                    int dp = DriverBattery.TryRead(out dsrc);
+                    int dp = DriverControl.TryReadBattery(out dsrc);
+                    w.WriteLine("Magic Trackpad 2 driver installed: " + DriverControl.IsInstalled());
                     w.WriteLine(dp > 0 ? string.Format("Driver battery {0}% via {1}", dp, dsrc)
-                        : "MagicTrackpad2ForWindows driver did not report a battery level.");
+                        : "Magic Trackpad 2 driver did not report a battery level.");
                 }
                 return 0;
             }
+
+            // --apply-driver-settings <k=v,...>: elevated helper started by the "Trackpad driver" tab.
+            // Writes the driver settings to HKLM and asks the driver to reload them. No UI.
+            int ai = Array.IndexOf(args, "--apply-driver-settings");
+            if (ai >= 0 && ai + 1 < args.Length)
+                return ApplyDriverSettings(args[ai + 1], logPath);
 
             bool created;
             using (var mutex = new Mutex(true, "TrackpadCanvas.SingleInstance", out created))
@@ -74,6 +81,55 @@ namespace TrackpadCanvas
                 Application.Run(new MainForm(settings, logPath, hidden));
             }
             return 0;
+        }
+
+        // Scales a layout size designed at 96 DPI to the system DPI (the process is DPI-aware, so
+        // WinForms doesn't stretch the window, but the system font already is larger on high-DPI screens).
+        static float dpiScale;
+        public static int Px(int px)
+        {
+            if (dpiScale == 0)
+            {
+                try { dpiScale = GetDpiForSystem() / 96f; }
+                catch (EntryPointNotFoundException) { dpiScale = 1; }
+                if (dpiScale <= 0) dpiScale = 1;
+            }
+            return (int)Math.Round(px * dpiScale);
+        }
+        public static System.Drawing.Size Sz(int w, int h) { return new System.Drawing.Size(Px(w), Px(h)); }
+
+        [DllImport("user32.dll")]
+        static extern uint GetDpiForSystem();
+
+        // Appends to the log while letting the running app and its elevated helper write to it at the same time.
+        public static StreamWriter OpenLog(string path)
+        {
+            return new StreamWriter(new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite));
+        }
+
+        static int ApplyDriverSettings(string arg, string logPath)
+        {
+            int code;
+            string message;
+            try
+            {
+                DriverSettings.FromArgument(arg).Save();
+                bool reloaded = DriverControl.ReloadSettings();
+                code = reloaded ? 0 : DriverPanel.ExitSavedNotReloaded;
+                message = reloaded ? "saved and reloaded" : "saved; no trackpad acknowledged the reload";
+            }
+            catch (Exception ex)
+            {
+                code = 2;
+                message = "failed: " + ex.Message;
+            }
+            try
+            {
+                using (var w = Program.OpenLog(logPath))
+                    w.WriteLine(DateTime.Now.ToString("HH:mm:ss") + " Driver settings " + message + " [" + arg + "]");
+            }
+            catch (IOException) { }
+            return code;
         }
 
         public static List<PtpDevice> EnumerateTouchpads(Action<string> log)
