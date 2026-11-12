@@ -62,52 +62,71 @@ namespace TrackpadCanvas
             return cached;
         }
 
+        // 16x16 pixel-art trackpad with two fingertips. K ink, w highlight, c body, d body shade,
+        // B blue finger, P pink finger, S translucent shadow, '.' transparent.
+        static readonly string[] Pixels =
+        {
+            "................",
+            "................",
+            "..KKKKKKKKKKKK..",
+            ".KwwwwwwwwwwwwK.",
+            ".KccccccccKKccKS",
+            ".KcccccccKBBKcKS",
+            ".KcccccccKBBKcKS",
+            ".KccccccccKKccKS",
+            ".KccKKccccccccKS",
+            ".KcKPPKcccccccKS",
+            ".KcKPPKcccccccKS",
+            ".KccKKccccccccKS",
+            ".KddddddddddddKS",
+            "..KKKKKKKKKKKKSS",
+            "...SSSSSSSSSSSS.",
+            "................",
+        };
+
+        static Color PixelColor(char c)
+        {
+            switch (c)
+            {
+                case 'K': return Color.FromArgb(22, 30, 72);
+                case 'w': return Color.FromArgb(222, 242, 228);
+                case 'c': return Color.FromArgb(178, 220, 192);
+                case 'd': return Color.FromArgb(136, 188, 154);
+                case 'B': return Color.FromArgb(72, 96, 224);
+                case 'P': return Color.FromArgb(226, 6, 90);
+                case 'S': return Color.FromArgb(90, 20, 20, 60);
+            }
+            return Color.Transparent;
+        }
+
+        // Draws the pixel icon with its top-left at (x, y), each icon pixel px device pixels wide.
+        public static void DrawPixels(Graphics g, int x, int y, int px)
+        {
+            for (int row = 0; row < 16; row++)
+                for (int col = 0; col < 16; col++)
+                {
+                    var c = PixelColor(Pixels[row][col]);
+                    if (c.A == 0) continue;
+                    using (var b = new SolidBrush(c)) g.FillRectangle(b, x + col * px, y + row * px, px, px);
+                }
+        }
+
         static Bitmap Draw(int s)
         {
             var bmp = new Bitmap(s, s, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bmp))
             {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 g.Clear(Color.Transparent);
-
-                // Trackpad body
-                float stroke = Math.Max(1f, s / 20f);
-                float m = stroke / 2 + s * 0.03f;
-                float w = s - 2 * m;
-                float h = (float)Math.Round(w * 0.8f);
-                var pad = new RectangleF(m, (s - h) / 2, w, h);
-                using (var path = RoundRect(pad, s * 0.17f))
-                using (var fill = new LinearGradientBrush(pad, Color.FromArgb(252, 252, 254), Color.FromArgb(206, 209, 218), 90f))
-                using (var pen = new Pen(Color.FromArgb(88, 92, 105), stroke))
-                {
-                    g.FillPath(fill, path);
-                    g.DrawPath(pen, path);
-                }
-
-                // Two fingertips on a diagonal
-                float cx = s / 2f, cy = s / 2f;
-                float off = s * 0.15f;
-                float d = s * (s <= 20 ? 0.26f : 0.22f);
-                var blue = Color.FromArgb(37, 117, 240);
-                using (var b = new SolidBrush(blue))
-                {
-                    g.FillEllipse(b, cx - off - d / 2, cy + off * 0.75f - d / 2, d, d);
-                    g.FillEllipse(b, cx + off - d / 2, cy - off * 0.75f - d / 2, d, d);
-                }
-
-                // Rotation arcs at larger sizes
-                if (s >= 32)
-                {
-                    float r = s * 0.29f;
-                    using (var pen = new Pen(Color.FromArgb(170, blue), Math.Max(1.5f, s / 24f)))
+                g.SmoothingMode = SmoothingMode.None;
+                // Nearest-neighbour cells; exact for multiples of 16, slightly uneven otherwise.
+                for (int row = 0; row < 16; row++)
+                    for (int col = 0; col < 16; col++)
                     {
-                        pen.EndCap = LineCap.ArrowAnchor;
-                        var arc = new RectangleF(cx - r, cy - r, 2 * r, 2 * r);
-                        g.DrawArc(pen, arc, 195, 55);
-                        g.DrawArc(pen, arc, 15, 55);
+                        var c = PixelColor(Pixels[row][col]);
+                        if (c.A == 0) continue;
+                        int x0 = col * s / 16, x1 = (col + 1) * s / 16, y0 = row * s / 16, y1 = (row + 1) * s / 16;
+                        using (var b = new SolidBrush(c)) g.FillRectangle(b, x0, y0, Math.Max(1, x1 - x0), Math.Max(1, y1 - y0));
                     }
-                }
             }
             return bmp;
         }

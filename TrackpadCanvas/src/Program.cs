@@ -65,6 +65,11 @@ namespace TrackpadCanvas
             if (ai >= 0 && ai + 1 < args.Length)
                 return ApplyDriverSettings(args[ai + 1], logPath);
 
+            // --variant N: hidden preview of an alternative look (see Variants.cs). Without it nothing changes.
+            int vi = Array.IndexOf(args, "--variant");
+            int variant;
+            if (vi >= 0 && vi + 1 < args.Length && int.TryParse(args[vi + 1], out variant)) Theme.ApplyVariant(variant);
+
             bool created;
             using (var mutex = new Mutex(true, "TrackpadCanvas.SingleInstance", out created))
             {

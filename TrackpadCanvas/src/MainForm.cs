@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -22,11 +22,19 @@ namespace TrackpadCanvas
         NotifyIcon tray;
         ToolStripMenuItem trayEnabled;
         CheckBox chkEnabled, chkOnlyApps, chkReverse, chkScrollElsewhere, chkReverseScroll;
-        TextBox txtApps, txtLog;
-        NumericUpDown numScale, numScroll;
-        Label lblScroll;
+        PixelTextBox txtApps;
+        LogView txtLog;
+        RetroSlider numScale, numScroll;
+        RetroTextField appsField;
+        RetroButton btnAddApp;
         readonly WheelInjector wheel = new WheelInjector();
-        Label lblDevice, lblLive, lblBattery;
+        RetroLabel lblDevice, lblBattery;
+        HeaderBar header;
+        RetroTabs tabs;
+        Control[] pages;
+        TouchView touchView;
+        readonly string logPath;
+        const int LivePage = 2;
 
         readonly Timer batteryTimer = new Timer();
         string batteryPath;
@@ -54,6 +62,7 @@ namespace TrackpadCanvas
         {
             this.settings = settings;
             this.startHidden = startHidden;
+            this.logPath = logPath;
             try { logFile = Program.OpenLog(logPath); logFile.AutoFlush = true; } catch (IOException) { }
 
             engine = new GestureEngine(injector, wheel);
@@ -83,106 +92,46 @@ namespace TrackpadCanvas
         {
             Text = "Trackpad Canvas";
             Icon = AppIcon.Load();
-            Font = SystemFonts.MessageBoxFont;
-            AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = Program.Sz(640, 600);
-            MinimumSize = Program.Sz(500, 480);
+            AutoScaleMode = AutoScaleMode.None; // every size below is already scaled with Theme.Px
+            BackColor = Theme.Paper;
+            // Compact by default, and never more than most of the screen.
+            var work = Screen.FromPoint(Cursor.Position).WorkingArea;
+            ClientSize = new Size(Math.Min(Theme.Px(Theme.WindowWU), work.Width * 8 / 10), Math.Min(Theme.Px(Theme.WindowHU), work.Height * 75 / 100));
+            MinimumSize = new Size(Math.Min(Theme.Px(Math.Min(400, Theme.WindowWU)), work.Width * 8 / 10), Math.Min(Theme.Px(320), work.Height * 6 / 10));
 
-            var table = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                ColumnCount = 2,
-                Padding = new Padding(10),
-                AutoSize = false,
-            };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            chkEnabled = new CheckBox { Text = "Enabled", Checked = settings.Enabled, AutoSize = true };
+            header = new HeaderBar { Dock = DockStyle.Top };
+            chkEnabled = header.Switch;
+            chkEnabled.Checked = settings.Enabled;
             chkEnabled.CheckedChanged += (s, e) => { settings.Enabled = chkEnabled.Checked; SettingsChanged(); };
-            table.Controls.Add(chkEnabled, 0, 0);
-            table.SetColumnSpan(chkEnabled, 2);
+            header.SetBattery(-1, false, "…", "Battery: checking…");
 
-            chkOnlyApps = new CheckBox { Text = "Touch gestures (pan, zoom, rotate) only in:", Checked = settings.OnlyInApps, AutoSize = true };
-            chkOnlyApps.CheckedChanged += (s, e) => { settings.OnlyInApps = chkOnlyApps.Checked; SettingsChanged(); };
-            table.Controls.Add(chkOnlyApps, 0, 1);
-            txtApps = new TextBox { Text = settings.Apps, Dock = DockStyle.Fill };
-            txtApps.Leave += (s, e) => { settings.Apps = txtApps.Text; SettingsChanged(); };
-            table.Controls.Add(txtApps, 1, 1);
+            tabs = new RetroTabs(new[] { "Gestures", "Trackpad driver", "Live view & log" },
+                                 new[] { Theme.Pink, Theme.Yellow, Theme.Mint })
+                { Dock = Theme.TabsAt == 1 ? DockStyle.Left : Theme.TabsAt == 2 ? DockStyle.Bottom : DockStyle.Top };
+            var host = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Paper };
+            pages = new[] { BuildGesturesPage(), BuildDriverPage(), BuildLivePage() };
+            foreach (var p in pages) { p.Dock = DockStyle.Fill; host.Controls.Add(p); }
+            tabs.SelectedIndexChanged += (s, e) => ShowPage(tabs.SelectedIndex);
+            ShowPage(0);
 
-            var lblScale = new Label { Text = "Canvas movement (pixels per mm):", AutoSize = true, Anchor = AnchorStyles.Left };
-            table.Controls.Add(lblScale, 0, 2);
-            numScale = new NumericUpDown
-            {
-                Minimum = 1, Maximum = 40, DecimalPlaces = 1, Increment = 0.5m,
-                Value = (decimal)Math.Max(1, Math.Min(40, settings.PxPerMm)), Width = Program.Px(80),
-            };
-            numScale.ValueChanged += (s, e) => { settings.PxPerMm = (double)numScale.Value; SettingsChanged(); };
-            table.Controls.Add(numScale, 1, 2);
-
-            chkReverse = new CheckBox { Text = "Reverse pan direction", Checked = settings.ReversePan, AutoSize = true };
-            chkReverse.CheckedChanged += (s, e) => { settings.ReversePan = chkReverse.Checked; SettingsChanged(); };
-            table.Controls.Add(chkReverse, 0, 3);
-            table.SetColumnSpan(chkReverse, 2);
-
-            chkScrollElsewhere = new CheckBox
-            {
-                Text = "Everywhere else: two-finger scroll and pinch-zoom like a normal touchpad",
-                Checked = settings.ScrollElsewhere, AutoSize = true, Margin = new Padding(3, 12, 3, 3),
-            };
-            chkScrollElsewhere.CheckedChanged += (s, e) => { settings.ScrollElsewhere = chkScrollElsewhere.Checked; SettingsChanged(); };
-            table.Controls.Add(chkScrollElsewhere, 0, 4);
-            table.SetColumnSpan(chkScrollElsewhere, 2);
-
-            lblScroll = new Label { Text = "Scroll speed:", AutoSize = true, Anchor = AnchorStyles.Left };
-            table.Controls.Add(lblScroll, 0, 5);
-            numScroll = new NumericUpDown
-            {
-                Minimum = 2, Maximum = 100, DecimalPlaces = 0, Increment = 2,
-                Value = (decimal)Math.Max(2, Math.Min(100, settings.ScrollSpeed)), Width = Program.Px(80),
-            };
-            numScroll.ValueChanged += (s, e) => { settings.ScrollSpeed = (double)numScroll.Value; SettingsChanged(); };
-            table.Controls.Add(numScroll, 1, 5);
-
-            chkReverseScroll = new CheckBox { Text = "Reverse scroll direction", Checked = settings.ReverseScroll, AutoSize = true };
-            chkReverseScroll.CheckedChanged += (s, e) => { settings.ReverseScroll = chkReverseScroll.Checked; SettingsChanged(); };
-            table.Controls.Add(chkReverseScroll, 0, 6);
-            table.SetColumnSpan(chkReverseScroll, 2);
-
-            lblDevice = new Label { Text = "Trackpad: waiting for input...", AutoSize = true, MaximumSize = Program.Sz(560, 0), Margin = new Padding(3, 12, 3, 3) };
-            table.Controls.Add(lblDevice, 0, 7);
-            table.SetColumnSpan(lblDevice, 2);
-
-            lblBattery = new Label { Text = "Battery: checking...", AutoSize = true };
-            table.Controls.Add(lblBattery, 0, 8);
-            table.SetColumnSpan(lblBattery, 2);
-
-            lblLive = new Label { Text = "Fingers: -", AutoSize = true };
-            table.Controls.Add(lblLive, 0, 9);
-            table.SetColumnSpan(lblLive, 2);
-
-            txtLog = new TextBox
-            {
-                Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill,
-                Font = new Font(FontFamily.GenericMonospace, 8.5f),
-            };
-            table.Controls.Add(txtLog, 0, 10);
-            table.SetColumnSpan(txtLog, 2);
-            for (int i = 0; i < 10; i++) table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var tabs = new TabControl { Dock = DockStyle.Fill };
-            var gestureTab = new TabPage("Gestures") { UseVisualStyleBackColor = true };
-            gestureTab.Controls.Add(table);
-            var driverTab = new TabPage("Trackpad driver") { UseVisualStyleBackColor = true };
-            var driver = new DriverPanel { Dock = DockStyle.Fill };
-            driver.Log += Log;
-            driverTab.Controls.Add(driver);
-            tabs.TabPages.Add(gestureTab);
-            tabs.TabPages.Add(driverTab);
+            // Docking runs from the last-added control: header first, then the tabs, then the page area.
+            Controls.Add(host);
             Controls.Add(tabs);
+            if (Theme.StatusBar) Controls.Add(new PixelStatusBar(header) { Dock = DockStyle.Bottom });
+            if (Theme.HeaderMode == 2)
+            {
+                // Preview variant: no header; the master switch sits at the right end of the tab bar.
+                header.Controls.Remove(chkEnabled);
+                header.Switch.PlateColor = tabs.BackColor;
+                tabs.Trailing = chkEnabled;
+                header.Visible = false;
+            }
+            Controls.Add(header);
             UpdateControlStates();
+            UpdateHeader();
 
             var menu = new ContextMenuStrip();
+            Theme.StyleMenu(menu);
             menu.Items.Add("Show", null, (s, e) => ShowWindow());
             trayEnabled = new ToolStripMenuItem("Enabled", null, (s, e) => chkEnabled.Checked = !chkEnabled.Checked);
             trayEnabled.Checked = settings.Enabled;
@@ -193,6 +142,189 @@ namespace TrackpadCanvas
             tray.DoubleClick += (s, e) => ShowWindow();
 
             Resize += (s, e) => { if (WindowState == FormWindowState.Minimized) Hide(); };
+        }
+
+        Control BuildGesturesPage()
+        {
+            var page = new ScrollPage();
+            int indent = ToggleArt.TextX;
+
+            var tip = new RetroNote(
+                "Setup tip: in Windows touchpad settings, turn off “Drag two fingers to scroll” and “Pinch to zoom”. " +
+                "Otherwise Windows scrolls and zooms at the same time as Trackpad Canvas.", Theme.Yellow, "i");
+            tip.ActionText = "Open Windows touchpad settings ›";
+            tip.ActionClicked += (s, e) => OpenTouchpadSettings();
+            page.Stack.Controls.Add(tip);
+
+            var where = new Card("WHERE GESTURES WORK", Theme.Blue);
+            chkOnlyApps = new RetroCheck("Only use touch gestures in these apps",
+                "Pan, pinch-zoom and rotate become real touchscreen gestures in the apps listed below. Turn this off to use them in every app.")
+                { Checked = settings.OnlyInApps, Accent = Theme.Blue };
+            chkOnlyApps.CheckedChanged += (s, e) => { settings.OnlyInApps = chkOnlyApps.Checked; SettingsChanged(); };
+            where.Controls.Add(chkOnlyApps);
+
+            appsField = new RetroTextField("App names", "Process names separated by commas, without “.exe”. Press Enter to save.", settings.Apps)
+                { Margin = new Padding(indent, 0, 0, 0) };
+            txtApps = appsField.Box;
+            txtApps.Leave += (s, e) => CommitApps();
+            txtApps.Commit += (s, e) => CommitApps();
+            where.Controls.Add(appsField);
+
+            btnAddApp = new RetroButton("+  Add a running app…", Theme.Field);
+            btnAddApp.Click += (s, e) => ShowRunningApps();
+            var addRow = new HRow { Margin = new Padding(indent, 0, 0, 0) };
+            addRow.Controls.Add(btnAddApp);
+            where.Controls.Add(addRow);
+            page.Stack.Controls.Add(where);
+
+            var canvas = new Card("CANVAS GESTURES", Theme.Pink);
+            numScale = new RetroSlider("Canvas movement", "How far the canvas moves for each millimetre your fingers travel.",
+                1, 40, 0.5, settings.PxPerMm) { Accent = Theme.Pink, Format = v => v.ToString("0.0") + " px/mm" };
+            numScale.ValueChanged += (s, e) => { settings.PxPerMm = numScale.Value; SettingsChanged(); };
+            canvas.Controls.Add(numScale);
+            chkReverse = new RetroCheck("Reverse pan direction", "Flips panning only; zoom and rotate are unaffected.")
+                { Checked = settings.ReversePan, Accent = Theme.Pink };
+            chkReverse.CheckedChanged += (s, e) => { settings.ReversePan = chkReverse.Checked; SettingsChanged(); };
+            canvas.Controls.Add(chkReverse);
+            page.Stack.Controls.Add(canvas);
+
+            var elsewhere = new Card("EVERYWHERE ELSE", Theme.Mint);
+            chkScrollElsewhere = new RetroCheck("Scroll and pinch-zoom like a normal touchpad",
+                "In apps that aren't on the list, two fingers scroll the mouse wheel and a pinch zooms with Ctrl + wheel. " +
+                "Only used when touch gestures are limited to the apps above.")
+                { Checked = settings.ScrollElsewhere, Accent = Theme.Mint };
+            chkScrollElsewhere.CheckedChanged += (s, e) => { settings.ScrollElsewhere = chkScrollElsewhere.Checked; SettingsChanged(); };
+            elsewhere.Controls.Add(chkScrollElsewhere);
+            numScroll = new RetroSlider("Scroll speed", "Wheel units per mm of finger movement (120 = one wheel notch).",
+                2, 100, 2, settings.ScrollSpeed) { Accent = Theme.Mint, Format = v => v.ToString("0"), Margin = new Padding(indent, 0, 0, 0) };
+            numScroll.ValueChanged += (s, e) => { settings.ScrollSpeed = numScroll.Value; SettingsChanged(); };
+            elsewhere.Controls.Add(numScroll);
+            chkReverseScroll = new RetroCheck("Reverse scroll direction", "Off = natural scrolling: the content follows your fingers.")
+                { Checked = settings.ReverseScroll, Accent = Theme.Mint, Margin = new Padding(indent, 0, 0, 0) };
+            chkReverseScroll.CheckedChanged += (s, e) => { settings.ReverseScroll = chkReverseScroll.Checked; SettingsChanged(); };
+            elsewhere.Controls.Add(chkReverseScroll);
+            page.Stack.Controls.Add(elsewhere);
+            return page;
+        }
+
+        Control BuildDriverPage()
+        {
+            var driver = new DriverPanel();
+            driver.Log += Log;
+            return driver;
+        }
+
+        Control BuildLivePage()
+        {
+            var page = new ScrollPage();
+
+            var live = new Card("LIVE VIEW", Theme.Mint);
+            live.Controls.Add(new RetroLabel("Rest your fingers on the trackpad to check it is being read. " +
+                "With two fingers down you can see which gesture Trackpad Canvas is sending.", Theme.Text, Theme.InkSoft));
+            touchView = new TouchView();
+            live.Controls.Add(touchView);
+            page.Stack.Controls.Add(live);
+
+            var status = new Card("STATUS", Theme.Peach);
+            lblDevice = new RetroLabel("Trackpad: waiting for input…", Theme.Text, Theme.Ink);
+            lblBattery = new RetroLabel("Battery: checking…", Theme.Text, Theme.Ink);
+            status.Controls.Add(lblDevice);
+            status.Controls.Add(lblBattery);
+            page.Stack.Controls.Add(status);
+
+            var logCard = new Card("ACTIVITY LOG", Theme.Lavender);
+            txtLog = new LogView();
+            logCard.Controls.Add(txtLog);
+            var row = new HRow();
+            var copy = new RetroButton("Copy log", Theme.Field);
+            copy.Click += (s, e) => { try { if (!txtLog.IsEmpty) Clipboard.SetText(txtLog.AllText); } catch (Exception) { } };
+            var open = new RetroButton("Open log file", Theme.Field);
+            open.Click += (s, e) => { try { Process.Start(logPath); } catch (Exception) { } };
+            var clear = new RetroButton("Clear", Theme.Field);
+            clear.Click += (s, e) => txtLog.Clear();
+            row.Controls.Add(copy);
+            row.Controls.Add(open);
+            row.Controls.Add(clear);
+            logCard.Controls.Add(row);
+            page.Stack.Controls.Add(logCard);
+            return page;
+        }
+
+        void ShowPage(int index)
+        {
+            for (int i = 0; i < pages.Length; i++) pages[i].Visible = i == index;
+            if (index == LivePage && touchView != null) touchView.SetFrame(null, engine.StateName);
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (tabs != null && (keyData == (Keys.Control | Keys.Tab) || keyData == (Keys.Control | Keys.Shift | Keys.Tab)))
+            {
+                int step = (keyData & Keys.Shift) != 0 ? tabs.Count - 1 : 1;
+                tabs.SelectedIndex = (tabs.SelectedIndex + step) % tabs.Count;
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        static void OpenTouchpadSettings()
+        {
+            try { Process.Start("ms-settings:devices-touchpad"); } catch (Exception) { }
+        }
+
+        void CommitApps()
+        {
+            if (settings.Apps == txtApps.Text) return;
+            settings.Apps = txtApps.Text;
+            SettingsChanged();
+        }
+
+        // Offers the apps that currently have a window, so users don't have to know process names.
+        void ShowRunningApps()
+        {
+            CommitApps();
+            var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            int self = Process.GetCurrentProcess().Id;
+            foreach (var p in Process.GetProcesses())
+            {
+                try { if (p.Id != self && p.MainWindowHandle != IntPtr.Zero) names.Add(p.ProcessName); }
+                catch (Exception) { }
+                finally { p.Dispose(); }
+            }
+            var menu = new ContextMenuStrip();
+            Theme.StyleMenu(menu);
+            var listed = settings.AppList;
+            foreach (var name in names)
+            {
+                string n = name;
+                bool already = listed.Any(a => string.Equals(a, n, StringComparison.OrdinalIgnoreCase));
+                var item = new ToolStripMenuItem(n) { Checked = already, Enabled = !already };
+                item.Click += (s, e) =>
+                {
+                    string cur = txtApps.Text.Trim().TrimEnd(',').Trim();
+                    txtApps.Text = cur.Length == 0 ? n : cur + ", " + n;
+                    CommitApps();
+                };
+                menu.Items.Add(item);
+            }
+            if (menu.Items.Count == 0) menu.Items.Add(new ToolStripMenuItem("No apps with windows found") { Enabled = false });
+            menu.Closed += (s, e) => BeginInvoke(new Action(menu.Dispose));
+            menu.Show(btnAddApp, new Point(0, btnAddApp.Height));
+        }
+
+        static string FriendlyName(PtpDevice d)
+        {
+            string n = d.Name ?? "";
+            bool apple = n.IndexOf("05AC", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("004C", StringComparison.OrdinalIgnoreCase) >= 0;
+            return apple ? "Magic Trackpad" : "Precision touchpad";
+        }
+
+        void UpdateHeader()
+        {
+            if (header == null) return;
+            var dev = devices.Values.FirstOrDefault(d => d != null);
+            string pad = dev != null ? FriendlyName(dev) + " connected" : "Waiting for a trackpad…";
+            header.Status = settings.Enabled ? pad : "Paused  ·  " + pad;
         }
 
         void ShowWindow()
@@ -254,6 +386,7 @@ namespace TrackpadCanvas
                     ? string.Format(" (last reading {0}% at {1:HH:mm})", lastGoodBattery.Percent, lastGoodTime)
                     : "";
                 lblBattery.Text = "Battery: charging over USB cable - level not readable while wired" + last;
+                header.SetBattery(-1, true, "USB", lblBattery.Text);
                 tray.Text = "Trackpad Canvas - charging over USB";
                 warnedAt = 101;
                 if (lastBattery != null || lastBatteryError != "wired") Log("Trackpad is on USB; battery level not readable while wired.");
@@ -264,6 +397,7 @@ namespace TrackpadCanvas
             if (s == null)
             {
                 lblBattery.Text = "Battery: unavailable";
+                header.SetBattery(-1, false, "--", lblBattery.Text);
                 tray.Text = "Trackpad Canvas";
                 if (error != lastBatteryError) Log("Battery read failed: " + error);
                 lastBatteryError = error;
@@ -275,6 +409,7 @@ namespace TrackpadCanvas
 
             string state = s.FullyCharged ? " (fully charged)" : s.Charging ? " (charging)" : "";
             lblBattery.Text = "Battery: " + s.Percent + "%" + state;
+            header.SetBattery(s.Percent, s.Charging && !s.FullyCharged, s.Percent + "%", lblBattery.Text);
             tray.Text = "Trackpad Canvas - battery " + s.Percent + "%" + state;
             if (lastBattery == null || lastBattery.Percent != s.Percent || lastBattery.Flags != s.Flags)
                 Log(string.Format("Battery {0}%{1} [flags {2}]", s.Percent, state, s.Flags.Length > 0 ? s.Flags : "none"));
@@ -318,6 +453,7 @@ namespace TrackpadCanvas
             lastFg = IntPtr.Zero;
             settings.Save();
             if (!settings.Enabled) engine.Cancel();
+            UpdateHeader();
         }
 
         void ApplySettings()
@@ -333,9 +469,10 @@ namespace TrackpadCanvas
         void UpdateControlStates()
         {
             if (chkScrollElsewhere == null) return;
+            appsField.Enabled = btnAddApp.Enabled = settings.OnlyInApps;
             chkScrollElsewhere.Enabled = settings.OnlyInApps;
             bool scrolling = settings.OnlyInApps && settings.ScrollElsewhere;
-            lblScroll.Enabled = numScroll.Enabled = chkReverseScroll.Enabled = scrolling;
+            numScroll.Enabled = chkReverseScroll.Enabled = scrolling;
         }
 
         // Touch gestures in the listed art apps; ordinary wheel scrolling and Ctrl+wheel zoom everywhere else.
@@ -389,7 +526,9 @@ namespace TrackpadCanvas
         void AddDevice(PtpDevice d)
         {
             devices[d.Handle] = d;
-            lblDevice.Text = "Trackpad: " + d.Description;
+            lblDevice.Text = "Trackpad: " + FriendlyName(d) + " — " + d.Description;
+            touchView.SetPad(d.WidthMm, d.HeightMm);
+            UpdateHeader();
         }
 
         protected override void WndProc(ref Message m)
@@ -406,7 +545,13 @@ namespace TrackpadCanvas
                 if (devices.TryGetValue(m.LParam, out d))
                 {
                     devices.Remove(m.LParam);
-                    if (d != null) { d.Dispose(); Log("Trackpad disconnected."); }
+                    if (d != null)
+                    {
+                        d.Dispose();
+                        Log("Trackpad disconnected.");
+                        if (!devices.Values.Any(x => x != null)) lblDevice.Text = "Trackpad: disconnected";
+                        UpdateHeader();
+                    }
                     engine.Cancel();
                 }
             }
@@ -463,12 +608,11 @@ namespace TrackpadCanvas
         void UpdateLive(List<Contact> frame)
         {
             int now = Environment.TickCount;
-            if (frame.Count == lastContactCount && now - lastLiveTick < 100) return;
+            if (frame.Count == lastContactCount && now - lastLiveTick < 33) return;
             lastLiveTick = now;
             lastContactCount = frame.Count;
-            if (!Visible) return;
-            string pts = string.Join("  ", frame.Select(c => string.Format("#{0} ({1:0.0}, {2:0.0})", c.Id, c.X, c.Y)));
-            lblLive.Text = string.Format("Fingers: {0}   Gesture: {1}   {2}", frame.Count, engine.StateName, pts);
+            if (!Visible || tabs.SelectedIndex != LivePage) return;
+            touchView.SetFrame(frame, engine.StateName);
         }
 
         void Log(string msg)
@@ -476,8 +620,7 @@ namespace TrackpadCanvas
             string line = DateTime.Now.ToString("HH:mm:ss.fff") + "  " + msg;
             if (logFile != null) logFile.WriteLine(line);
             if (txtLog == null) return;
-            if (txtLog.TextLength > 60000) txtLog.Text = txtLog.Text.Substring(30000);
-            txtLog.AppendText(line + Environment.NewLine);
+            txtLog.Append(line);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

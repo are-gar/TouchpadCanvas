@@ -1,9 +1,7 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
-using System.IO;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace TrackpadCanvas
@@ -14,150 +12,154 @@ namespace TrackpadCanvas
     {
         public event Action<string> Log = delegate { };
 
-        RadioButton rbMac, rbDisable, rbMax, rbStopNone, rbStopPressure, rbStopSize;
-        TrackBar trkStrength;
-        CheckBox chkSilent, chkNearFingers, chkPalm, chkButtonFinger, chkInvert, chkNonAdmin;
-        NumericUpDown numPressure, numSize;
-        Label lblStatus;
-        Button btnApply;
-        Panel content;
+        static readonly string[] StrengthNames = { "Light", "Medium", "Firm" };
+
+        RetroRadio rbMac, rbDisable, rbMax, rbStopNone, rbStopPressure, rbStopSize;
+        RetroSlider trkStrength, numPressure, numSize;
+        RetroCheck chkSilent, chkNearFingers, chkPalm, chkButtonFinger, chkInvert, chkNonAdmin;
+        RetroNote lblStatus;
+        RetroButton btnApply;
+        Pill pill;
+        VStack content;
+        bool loading;
 
         public DriverPanel()
         {
-            AutoScroll = true;
-            var flow = new FlowLayoutPanel
+            BackColor = Theme.Paper;
+            var page = new ScrollPage { Dock = DockStyle.Fill };
+
+            lblStatus = new RetroNote("", Theme.Yellow, "i");
+            page.Stack.Controls.Add(lblStatus);
+
+            content = new VStack { Gap = Theme.Sp(9), Checker = true, BackColor = Theme.Paper, Columns = Theme.TwoColumns ? 2 : 1 };
+            content.Controls.Add(BuildFeedbackCard());
+            content.Controls.Add(BuildStopCard());
+            content.Controls.Add(BuildOtherCard());
+            page.Stack.Controls.Add(content);
+
+            // Footer stays visible while the page scrolls, so Apply is always in reach.
+            var footer = new HRow
             {
-                FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true,
-                Dock = DockStyle.Top, Padding = new Padding(10),
+                Dock = DockStyle.Bottom, TopRule = true, BackColor = Theme.Bezel,
+                Padding = new Padding(Theme.Px(10), Theme.Px(6), Theme.Px(10), Theme.Px(6)),
             };
-
-            lblStatus = new Label { AutoSize = true, MaximumSize = Program.Sz(560, 0), Margin = new Padding(3, 0, 3, 8) };
-            flow.Controls.Add(lblStatus);
-
-            content = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Margin = Padding.Empty };
-            content.Controls.Add(BuildFeedbackGroup());
-            content.Controls.Add(BuildStopGroup());
-            content.Controls.Add(BuildOtherGroup());
-            flow.Controls.Add(content);
-
-            var buttons = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
-            btnApply = new Button { Text = "Apply", AutoSize = true, FlatStyle = FlatStyle.System, MinimumSize = Program.Sz(90, 0) };
+            btnApply = new RetroButton("Apply", Theme.Yellow) { ShowShield = !DriverSettings.IsElevated() };
             btnApply.Click += (s, e) => Apply();
-            buttons.Controls.Add(btnApply);
-            var btnRevert = new Button { Text = "Revert", AutoSize = true, MinimumSize = Program.Sz(90, 0) };
+            var btnRevert = new RetroButton("Revert", Theme.Field);
             btnRevert.Click += (s, e) => LoadFromRegistry();
-            buttons.Controls.Add(btnRevert);
-            var btnWin = new Button { Text = "Windows touchpad settings", AutoSize = true };
+            var btnWin = new RetroButton("Windows touchpad settings", Theme.Field);
             btnWin.Click += (s, e) => { try { Process.Start("ms-settings:devices-touchpad"); } catch (Exception) { } };
-            buttons.Controls.Add(btnWin);
-            flow.Controls.Add(buttons);
+            pill = new Pill();
+            footer.Controls.Add(btnApply);
+            footer.Controls.Add(btnRevert);
+            footer.Controls.Add(btnWin);
+            footer.Controls.Add(pill);
+            footer.RightControl = pill;
+            footer.Height = footer.GetPreferredSize(Size.Empty).Height;
 
-            Controls.Add(flow);
-            HandleCreated += (s, e) => { if (!DriverSettings.IsElevated()) SendMessage(btnApply.Handle, BCM_SETSHIELD, IntPtr.Zero, new IntPtr(1)); };
+            Controls.Add(page);
+            Controls.Add(footer);
+
+            foreach (var r in new RadioButton[] { rbMac, rbDisable, rbMax, rbStopNone, rbStopPressure, rbStopSize })
+                r.CheckedChanged += (s, e) => { if (((RadioButton)s).Checked) MarkDirty(); };
+            foreach (var c in new CheckBox[] { chkSilent, chkNearFingers, chkPalm, chkButtonFinger, chkInvert, chkNonAdmin })
+                c.CheckedChanged += (s, e) => MarkDirty();
+            foreach (var sl in new[] { trkStrength, numPressure, numSize })
+                sl.ValueChanged += (s, e) => MarkDirty();
+
             LoadFromRegistry();
         }
 
-        GroupBox Group(string title, Control inner)
-        {
-            var g = new GroupBox { Text = title, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = Program.Sz(560, 0), Padding = new Padding(8) };
-            inner.Dock = DockStyle.Fill;
-            g.Controls.Add(inner);
-            return g;
-        }
+        static Padding Indent { get { return new Padding(ToggleArt.TextX, 0, 0, 0); } }
 
-        static TableLayoutPanel Table(int columns)
+        Control BuildFeedbackCard()
         {
-            var t = new TableLayoutPanel { ColumnCount = columns, AutoSize = true };
-            for (int i = 0; i < columns; i++) t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            return t;
-        }
-
-        Control BuildFeedbackGroup()
-        {
-            var t = Table(2);
-            rbMac = new RadioButton { Text = "macOS-style click:", AutoSize = true };
-            t.Controls.Add(rbMac, 0, 0);
-            t.SetColumnSpan(rbMac, 2);
-
-            // One-row table: cells anchored Left are vertically centred, so the labels line up with the slider.
-            var strength = new TableLayoutPanel { AutoSize = true, ColumnCount = 4, RowCount = 1, Margin = new Padding(Program.Px(20), 0, 0, 0) };
-            strength.Controls.Add(new Label { Text = "Click strength:   Light", AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
-            trkStrength = new TrackBar
+            var c = new Card("CLICK FEEDBACK", Theme.Yellow);
+            rbMac = new RetroRadio("macOS-style click", "A haptic click you can feel, like on a Mac.") { Accent = Theme.Yellow };
+            c.Controls.Add(rbMac);
+            trkStrength = new RetroSlider("Click strength", null, 0, 2, 1, 1)
             {
-                Minimum = 0, Maximum = 2, LargeChange = 1, Width = Program.Px(110), TickStyle = TickStyle.BottomRight,
-                Anchor = AnchorStyles.Left, BackColor = SystemColors.Window,
+                TickLabels = StrengthNames, Format = v => StrengthNames[(int)v], Accent = Theme.Yellow, Margin = Indent,
             };
-            strength.Controls.Add(trkStrength, 1, 0);
-            strength.Controls.Add(new Label { Text = "Firm", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, Program.Px(24), 0) }, 2, 0);
-            chkSilent = new CheckBox { Text = "Silent clicking", AutoSize = true, Anchor = AnchorStyles.Left };
-            strength.Controls.Add(chkSilent, 3, 0);
-            t.Controls.Add(strength, 0, 1);
-            t.SetColumnSpan(strength, 2);
-
-            rbDisable = new RadioButton { Text = "Disable haptic feedback and the force touch button completely", AutoSize = true };
-            t.Controls.Add(rbDisable, 0, 2);
-            t.SetColumnSpan(rbDisable, 2);
-            rbMax = new RadioButton { Text = "Maximum haptic feedback (very clicky and loud!)", AutoSize = true };
-            t.Controls.Add(rbMax, 0, 3);
-            t.SetColumnSpan(rbMax, 2);
+            c.Controls.Add(trkStrength);
+            chkSilent = new RetroCheck("Silent clicking", "Keeps the click but drops the vibration sound.") { Accent = Theme.Yellow, Margin = Indent };
+            c.Controls.Add(chkSilent);
+            rbDisable = new RetroRadio("No haptic feedback", "Turns off the haptic motor and the force touch button completely.") { Accent = Theme.Yellow };
+            c.Controls.Add(rbDisable);
+            rbMax = new RetroRadio("Maximum haptic feedback", "The strongest possible click. Very clicky and loud!") { Accent = Theme.Yellow };
+            c.Controls.Add(rbMax);
 
             rbMac.CheckedChanged += (s, e) => { trkStrength.Enabled = chkSilent.Enabled = rbMac.Checked; };
-            return Group("Click feedback", t);
+            return c;
         }
 
-        Control BuildStopGroup()
+        Control BuildStopCard()
         {
-            var t = Table(3);
-            rbStopNone = new RadioButton { Text = "Do nothing", AutoSize = true };
-            t.Controls.Add(rbStopNone, 0, 0);
-            t.SetColumnSpan(rbStopNone, 3);
-
-            rbStopPressure = new RadioButton { Text = "Stop the pointer if the pressure is at most", AutoSize = true };
-            numPressure = new NumericUpDown { Minimum = 0, Maximum = 255, Width = Program.Px(60) };
-            t.Controls.Add(rbStopPressure, 0, 1);
-            t.Controls.Add(numPressure, 1, 1);
-            t.Controls.Add(new Label { Text = "(0 = no pressure; 0 is a good value)", AutoSize = true, Anchor = AnchorStyles.Left }, 2, 1);
-
-            rbStopSize = new RadioButton { Text = "Stop the pointer if the touch area size is at most", AutoSize = true };
-            numSize = new NumericUpDown { Minimum = 0, Maximum = 255, Width = Program.Px(60) };
-            t.Controls.Add(rbStopSize, 0, 2);
-            t.Controls.Add(numSize, 1, 2);
-            t.Controls.Add(new Label { Text = "(7 is a good value)", AutoSize = true, Anchor = AnchorStyles.Left }, 2, 2);
+            var c = new Card("WHEN YOU LIFT YOUR FINGER", Theme.Blue);
+            rbStopNone = new RetroRadio("Do nothing", "The pointer follows your finger until it leaves the surface.") { Accent = Theme.Blue };
+            c.Controls.Add(rbStopNone);
+            rbStopPressure = new RetroRadio("Freeze the pointer at low pressure",
+                "Stops the pointer from jumping as you lift. 0 (no pressure) is a good value.") { Accent = Theme.Blue };
+            c.Controls.Add(rbStopPressure);
+            numPressure = new RetroSlider("Pressure threshold", null, 0, 255, 1, 0) { Accent = Theme.Blue, Margin = Indent, Format = v => v.ToString("0") };
+            c.Controls.Add(numPressure);
+            rbStopSize = new RetroRadio("Freeze the pointer at a small touch size",
+                "Uses the contact area instead of pressure. 7 is a good value.") { Accent = Theme.Blue };
+            c.Controls.Add(rbStopSize);
+            numSize = new RetroSlider("Touch size threshold", null, 0, 255, 1, 7) { Accent = Theme.Blue, Margin = Indent, Format = v => v.ToString("0") };
+            c.Controls.Add(numSize);
 
             EventHandler sync = (s, e) => { numPressure.Enabled = rbStopPressure.Checked; numSize.Enabled = rbStopSize.Checked; };
             rbStopPressure.CheckedChanged += sync;
             rbStopSize.CheckedChanged += sync;
-            return Group("When you lift your finger from the trackpad", t);
+            return c;
         }
 
-        Control BuildOtherGroup()
+        Control BuildOtherCard()
         {
-            var t = Table(1);
-            chkNearFingers = new CheckBox { Text = "Ignore fingers that are near but not touching the surface", AutoSize = true };
-            chkPalm = new CheckBox { Text = "Palm rejection", AutoSize = true };
-            chkButtonFinger = new CheckBox
+            var c = new Card("OTHER OPTIONS", Theme.Lavender);
+            chkNearFingers = new RetroCheck("Ignore hovering fingers", "Fingers that are near the surface but not touching it are ignored.");
+            chkPalm = new RetroCheck("Palm rejection", "Ignores large contacts, such as a resting palm.");
+            chkButtonFinger = new RetroCheck("Ignore the finger that presses the button", "For dragging: click with your thumb and move with your index finger.");
+            chkInvert = new RetroCheck("Invert up/down and left/right", "For using the trackpad upside down.");
+            chkNonAdmin = new RetroCheck("Let non-admin apps talk to the driver", "Lets Trackpad Canvas read the battery level over USB.");
+            foreach (var k in new[] { chkNearFingers, chkPalm, chkButtonFinger, chkInvert, chkNonAdmin })
             {
-                Text = "Ignore the finger that presses the button (for dragging: click with thumb, move with index)",
-                AutoSize = true, MaximumSize = Program.Sz(520, 0),
-            };
-            chkInvert = new CheckBox { Text = "Invert up/down and left/right (for upside-down use)", AutoSize = true };
-            chkNonAdmin = new CheckBox
-            {
-                Text = "Let non-admin apps talk to the driver (lets Trackpad Canvas read the battery level over USB)",
-                AutoSize = true, MaximumSize = Program.Sz(520, 0),
-            };
-            foreach (var c in new Control[] { chkNearFingers, chkPalm, chkButtonFinger, chkInvert, chkNonAdmin }) t.Controls.Add(c);
-            return Group("Other options", t);
+                k.Accent = Theme.Lavender;
+                c.Controls.Add(k);
+            }
+            return c;
+        }
+
+        void MarkDirty()
+        {
+            if (loading) return;
+            pill.Fill = Theme.Pink;
+            pill.Text = "Unsaved changes";
+        }
+
+        void ShowSaved(string text)
+        {
+            pill.Fill = Theme.Mint;
+            pill.Text = text;
         }
 
         void LoadFromRegistry()
         {
+            loading = true;
             bool installed = DriverControl.IsInstalled();
             content.Enabled = btnApply.Enabled = installed;
-            lblStatus.Text = installed
-                ? "These settings apply to the Magic Trackpad 2 driver from this project. Applying them needs administrator rights."
-                : "The Magic Trackpad 2 driver from this project is not installed, so these settings are unavailable. " +
-                  "The gesture features work with any Precision Touchpad driver.";
+            if (installed)
+            {
+                lblStatus.SetLook(Theme.Yellow, "i");
+                lblStatus.Text = "These settings control the Magic Trackpad 2 driver from this project. Applying them asks for administrator permission once.";
+            }
+            else
+            {
+                lblStatus.SetLook(Theme.Pink, "!");
+                lblStatus.Text = "The Magic Trackpad 2 driver from this project is not installed, so these settings are unavailable. " +
+                                 "The gesture features still work with any Precision Touchpad driver.";
+            }
 
             var s = DriverSettings.Load();
             if (s.ButtonDisabled != 0) rbDisable.Checked = true;
@@ -183,6 +185,8 @@ namespace TrackpadCanvas
             chkButtonFinger.Checked = s.IgnoreButtonFinger != 0;
             chkInvert.Checked = s.InvertMovement != 0;
             chkNonAdmin.Checked = s.AllowNonAdminAccess != 0;
+            loading = false;
+            pill.Text = "";
         }
 
         DriverSettings FromUi()
@@ -192,8 +196,9 @@ namespace TrackpadCanvas
             else if (rbMax.Checked) { s.FeedbackClick = DriverSettings.MaxFeedback; s.FeedbackRelease = DriverSettings.MaxFeedback; }
             else
             {
-                s.FeedbackClick = DriverSettings.ClickPresets[trkStrength.Value];
-                s.FeedbackRelease = DriverSettings.ReleasePresets[trkStrength.Value];
+                int strength = (int)trkStrength.Value;
+                s.FeedbackClick = DriverSettings.ClickPresets[strength];
+                s.FeedbackRelease = DriverSettings.ReleasePresets[strength];
                 if (chkSilent.Checked) { s.FeedbackClick &= 0xff; s.FeedbackRelease &= 0xff; }
             }
             s.StopPressure = rbStopPressure.Checked ? (int)numPressure.Value : -1;
@@ -257,9 +262,11 @@ namespace TrackpadCanvas
             {
                 case 0:
                     Log("Driver settings applied.");
+                    ShowSaved("Applied");
                     break;
                 case ExitSavedNotReloaded:
                     Log("Driver settings saved. No trackpad acknowledged the reload; they take effect when it reconnects.");
+                    ShowSaved("Saved — reconnect trackpad");
                     break;
                 case -2:
                     Log("Driver settings not applied (administrator permission was declined).");
@@ -271,9 +278,5 @@ namespace TrackpadCanvas
                     break;
             }
         }
-
-        const int BCM_SETSHIELD = 0x160C;
-        [DllImport("user32.dll")]
-        static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     }
 }
