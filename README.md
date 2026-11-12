@@ -1,4 +1,4 @@
-# TouchpadCanvas
+# TrackpadCanvas
 
 **Use an Apple Magic Trackpad like a touchscreen in Clip Studio Paint and Photoshop on Windows.** Pan, pinch-zoom
 and rotate the canvas with two fingers, the way you would on an iPad, while the trackpad keeps working as a
